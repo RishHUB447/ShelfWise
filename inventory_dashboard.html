@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>StockPulse — Inventory Forecasting</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0c0d0f;
+    --bg2: #131519;
+    --bg3: #1a1d23;
+    --bg4: #20242c;
+    --border: rgba(255,255,255,0.07);
+    --border2: rgba(255,255,255,0.12);
+    --text: #e8eaf0;
+    --text2: #8b909e;
+    --text3: #555b6a;
+    --accent: #c8f04a;
+    --accent2: #a8cc30;
+    --accent-dim: rgba(200,240,74,0.12);
+    --red: #ff5f5f;
+    --red-dim: rgba(255,95,95,0.12);
+    --amber: #f5a623;
+    --amber-dim: rgba(245,166,35,0.12);
+    --blue: #4a9eff;
+    --blue-dim: rgba(74,158,255,0.12);
+    --green: #3dd68c;
+    --green-dim: rgba(61,214,140,0.12);
+    --sidebar-w: 220px;
+    --header-h: 60px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    font-size: 14px;
+  }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    width: var(--sidebar-w);
+    min-height: 100vh;
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 10;
+  }
+  .logo {
+    padding: 22px 20px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .logo-mark {
+    width: 30px; height: 30px;
+    background: var(--accent);
+    border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .logo-mark svg { width: 16px; height: 16px; }
+  .logo-text {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 15px;
+    color: var(--text);
+    letter-spacing: -0.02em;
+  }
+  .logo-text span { color: var(--accent); }
+
+  .nav-section {
+    padding: 18px 12px 8px;
+  }
+  .nav-label {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    color: var(--text3);
+    padding: 0 8px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    color: var(--text2);
+    font-size: 13px;
+    font-weight: 400;
+    transition: all 0.15s;
+    margin-bottom: 2px;
+    position: relative;
+  }
+  .nav-item:hover { background: var(--bg3); color: var(--text); }
+  .nav-item.active {
+    background: var(--accent-dim);
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .nav-item.active::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 18px;
+    background: var(--accent);
+    border-radius: 0 2px 2px 0;
+  }
+  .nav-icon { width: 16px; height: 16px; opacity: 0.8; flex-shrink: 0; }
+  .nav-badge {
+    margin-left: auto;
+    background: var(--red);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 1px 6px;
+    border-radius: 99px;
+  }
+  .nav-badge.green { background: var(--green); color: #0c0d0f; }
+
+  .sidebar-bottom {
+    margin-top: auto;
+    padding: 16px 12px;
+    border-top: 1px solid var(--border);
+  }
+  .user-chip {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .user-chip:hover { background: var(--bg3); }
+  .avatar {
+    width: 28px; height: 28px;
+    background: linear-gradient(135deg, #4a9eff, #c8f04a);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600; color: var(--bg);
+    flex-shrink: 0;
+  }
+  .user-info .uname { font-size: 12px; font-weight: 500; color: var(--text); }
+  .user-info .urole { font-size: 11px; color: var(--text3); }
+
+  /* ── MAIN ── */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  /* ── HEADER ── */
+  .header {
+    height: var(--header-h);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 28px;
+    gap: 16px;
+    flex-shrink: 0;
+    background: var(--bg);
+  }
+  .header-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: -0.02em;
+    flex: 1;
+  }
+  .header-title span { color: var(--text2); font-weight: 400; font-size: 13px; margin-left: 8px; }
+
+  .hdr-btn {
+    display: flex; align-items: center; gap: 7px;
+    padding: 7px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border2);
+    background: var(--bg3);
+    color: var(--text2);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: 'DM Sans', sans-serif;
+  }
+  .hdr-btn:hover { border-color: var(--border2); color: var(--text); background: var(--bg4); }
+  .hdr-btn.primary {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+    font-weight: 500;
+  }
+  .hdr-btn.primary:hover { background: var(--accent2); }
+  .hdr-btn svg { width: 13px; height: 13px; }
+
+  .status-pill {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: var(--green);
+    background: var(--green-dim);
+    padding: 4px 10px;
+    border-radius: 99px;
+    border: 1px solid rgba(61,214,140,0.2);
+  }
+  .status-pill::before {
+    content: '';
+    width: 6px; height: 6px;
+    background: var(--green);
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* ── CONTENT AREA ── */
+  .content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--bg4) transparent;
+  }
+  .content::-webkit-scrollbar { width: 4px; }
+  .content::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 4px; }
+
+  /* ── KPI STRIP ── */
+  .kpi-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+  .kpi-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s;
+    animation: fadeUp 0.4s ease both;
+  }
+  .kpi-card:hover { border-color: var(--border2); }
+  .kpi-card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    border-radius: 12px 12px 0 0;
+  }
+  .kpi-card.k-green::after { background: var(--green); }
+  .kpi-card.k-red::after { background: var(--red); }
+  .kpi-card.k-amber::after { background: var(--amber); }
+  .kpi-card.k-blue::after { background: var(--blue); }
+  .kpi-card:nth-child(1) { animation-delay: 0.05s; }
+  .kpi-card:nth-child(2) { animation-delay: 0.1s; }
+  .kpi-card:nth-child(3) { animation-delay: 0.15s; }
+  .kpi-card:nth-child(4) { animation-delay: 0.2s; }
+
+  .kpi-label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
+  .kpi-val {
+    font-family: 'DM Mono', monospace;
+    font-size: 28px;
+    font-weight: 500;
+    color: var(--text);
+    letter-spacing: -0.02em;
+    line-height: 1;
+    margin-bottom: 10px;
+  }
+  .kpi-delta {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; font-weight: 500;
+    padding: 2px 8px; border-radius: 99px;
+  }
+  .kpi-delta.up { background: var(--green-dim); color: var(--green); }
+  .kpi-delta.down { background: var(--red-dim); color: var(--red); }
+  .kpi-delta.warn { background: var(--amber-dim); color: var(--amber); }
+  .kpi-sub { font-size: 11px; color: var(--text3); margin-top: 4px; }
+
+  /* ── GRID ROW ── */
+  .grid-row {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 16px;
+  }
+
+  /* ── PANEL ── */
+  .panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    animation: fadeUp 0.4s ease both;
+    animation-delay: 0.25s;
+  }
+  .panel-header {
+    padding: 16px 20px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+  }
+  .panel-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel-title .dot-tag {
+    width: 6px; height: 6px; border-radius: 50%;
+  }
+  .panel-actions { display: flex; gap: 8px; }
+  .mini-btn {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border2);
+    background: transparent;
+    color: var(--text2);
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: 'DM Sans', sans-serif;
+  }
+  .mini-btn:hover { background: var(--bg3); color: var(--text); }
+  .mini-btn.sel { background: var(--bg3); color: var(--text); border-color: var(--border2); }
+  .panel-body { padding: 20px; }
+
+  /* ── CHART ── */
+  .chart-wrap { position: relative; height: 220px; }
+
+  /* ── DEMAND RING ── */
+  .ring-wrap {
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px 0 10px;
+  }
+  .ring-chart { position: relative; width: 130px; height: 130px; }
+  .ring-chart canvas { position: absolute; top: 0; left: 0; }
+  .ring-center {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    text-align: center;
+  }
+  .ring-center .rv { font-family: 'DM Mono', monospace; font-size: 22px; font-weight: 500; color: var(--text); }
+  .ring-center .rl { font-size: 10px; color: var(--text3); margin-top: 1px; }
+  .ring-legend {
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 0 20px 16px;
+  }
+  .rl-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text2); }
+  .rl-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+  .rl-val { margin-left: auto; font-family: 'DM Mono', monospace; font-size: 12px; color: var(--text); }
+
+  /* ── TABLE SECTION ── */
+  .table-section {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    animation: fadeUp 0.4s ease both;
+    animation-delay: 0.3s;
+  }
+  .table-header {
+    padding: 16px 20px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+  }
+  .search-box {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 12px;
+    width: 200px;
+  }
+  .search-box input {
+    background: none; border: none; outline: none;
+    color: var(--text); font-size: 12px; width: 100%;
+    font-family: 'DM Sans', sans-serif;
+  }
+  .search-box input::placeholder { color: var(--text3); }
+  .search-box svg { width: 13px; height: 13px; color: var(--text3); flex-shrink: 0; }
+
+  .filter-tabs { display: flex; gap: 4px; }
+  .ftab {
+    font-size: 11px; padding: 5px 12px; border-radius: 6px;
+    border: 1px solid transparent; cursor: pointer; color: var(--text2);
+    transition: all 0.12s; background: transparent;
+    font-family: 'DM Sans', sans-serif;
+  }
+  .ftab:hover { color: var(--text); background: var(--bg3); }
+  .ftab.active { border-color: var(--border2); background: var(--bg3); color: var(--text); }
+  .ftab.crit { color: var(--red); }
+  .ftab.crit.active { background: var(--red-dim); border-color: rgba(255,95,95,0.25); }
+
+  table { width: 100%; border-collapse: collapse; }
+  thead tr { border-bottom: 1px solid var(--border); }
+  th {
+    text-align: left; padding: 10px 16px;
+    font-size: 10px; font-weight: 500; color: var(--text3);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    white-space: nowrap;
+  }
+  th:last-child { text-align: right; }
+  td { padding: 13px 16px; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .sku-cell { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text3); }
+  .prod-name { font-size: 13px; font-weight: 400; color: var(--text); }
+  .prod-cat { font-size: 11px; color: var(--text3); margin-top: 1px; }
+
+  .priority-tag {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 10px; font-weight: 500;
+    padding: 3px 8px; border-radius: 99px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .priority-tag::before { content: ''; width: 5px; height: 5px; border-radius: 50%; }
+  .priority-tag.critical { background: var(--red-dim); color: var(--red); border: 1px solid rgba(255,95,95,0.2); }
+  .priority-tag.critical::before { background: var(--red); }
+  .priority-tag.high { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(245,166,35,0.2); }
+  .priority-tag.high::before { background: var(--amber); }
+  .priority-tag.medium { background: var(--blue-dim); color: var(--blue); border: 1px solid rgba(74,158,255,0.2); }
+  .priority-tag.medium::before { background: var(--blue); }
+
+  .stock-bar-wrap { display: flex; align-items: center; gap: 8px; }
+  .stock-bar { width: 60px; height: 5px; background: var(--bg4); border-radius: 3px; overflow: hidden; }
+  .stock-bar-fill { height: 100%; border-radius: 3px; }
+  .stock-num { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--text2); min-width: 28px; }
+
+  .vel-val { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--text); }
+  .vel-up { color: var(--green); }
+  .vel-down { color: var(--red); }
+
+  .order-btn {
+    padding: 5px 12px; font-size: 11px; border-radius: 6px;
+    border: 1px solid var(--accent); color: var(--accent);
+    background: var(--accent-dim); cursor: pointer;
+    font-weight: 500; transition: all 0.15s;
+    font-family: 'DM Sans', sans-serif;
+    white-space: nowrap;
+  }
+  .order-btn:hover { background: var(--accent); color: var(--bg); }
+  .actions-cell { text-align: right; }
+
+  /* ── MINI ACTIVITY ── */
+  .activity-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    animation: fadeUp 0.4s ease both;
+    animation-delay: 0.35s;
+  }
+  .act-item {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 12px 20px; border-bottom: 1px solid var(--border);
+    transition: background 0.12s;
+  }
+  .act-item:last-child { border-bottom: none; }
+  .act-item:hover { background: var(--bg3); }
+  .act-icon {
+    width: 28px; height: 28px; border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; margin-top: 1px;
+  }
+  .act-icon svg { width: 13px; height: 13px; }
+  .act-text { font-size: 12px; color: var(--text2); line-height: 1.5; flex: 1; }
+  .act-text strong { color: var(--text); font-weight: 500; }
+  .act-time { font-size: 10px; color: var(--text3); flex-shrink: 0; margin-top: 2px; }
+
+  /* ── UPLOAD ZONE ── */
+  .upload-panel {
+    background: var(--bg2);
+    border: 1px dashed var(--border2);
+    border-radius: 12px;
+    padding: 28px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s;
+    animation: fadeUp 0.4s ease both;
+    animation-delay: 0.4s;
+  }
+  .upload-panel:hover { border-color: var(--accent); background: rgba(200,240,74,0.03); }
+  .upload-panel p { font-size: 13px; color: var(--text2); margin-top: 8px; }
+  .upload-panel small { font-size: 11px; color: var(--text3); }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="logo">
+    <div class="logo-mark">
+      <svg viewBox="0 0 16 16" fill="none"><rect x="1" y="8" width="3" height="7" rx="1" fill="#0c0d0f"/><rect x="6" y="5" width="3" height="10" rx="1" fill="#0c0d0f"/><rect x="11" y="1" width="3" height="14" rx="1" fill="#0c0d0f"/><path d="M2 6L6 3L9 5L14 1" stroke="#0c0d0f" stroke-width="1.2" stroke-linecap="round"/></svg>
+    </div>
+    <span class="logo-text">Stock<span>Pulse</span></span>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-label">Overview</div>
+    <div class="nav-item active">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.2"/><rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.2"/></svg>
+      Dashboard
+    </div>
+    <div class="nav-item">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><path d="M2 12L5 9L8 11L14 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.2"/></svg>
+      Forecasts
+      <span class="nav-badge green">New</span>
+    </div>
+    <div class="nav-item">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.2"/><path d="M8 5v3.5L10.5 10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+      Reorder Queue
+      <span class="nav-badge">7</span>
+    </div>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-label">Inventory</div>
+    <div class="nav-item">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><rect x="2" y="5" width="12" height="9" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M5 5V4a3 3 0 0 1 6 0v1" stroke="currentColor" stroke-width="1.2"/></svg>
+      All Products
+    </div>
+    <div class="nav-item">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 8h8M2 13h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+      Categories
+    </div>
+    <div class="nav-item">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><path d="M14 8H8m0 0L5 5m3 3L5 11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="4" cy="8" r="2.5" stroke="currentColor" stroke-width="1.2"/></svg>
+      Import / Export
+    </div>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-label">Analysis</div>
+    <div class="nav-item">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><rect x="1" y="4" width="14" height="9" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M4 7h2M4 10h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="11" cy="8.5" r="2" stroke="currentColor" stroke-width="1.2"/></svg>
+      Reports
+    </div>
+    <div class="nav-item">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><path d="M8 2v2M8 12v2M2 8h2M12 8h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.2"/></svg>
+      Parameters
+    </div>
+  </div>
+
+  <div class="sidebar-bottom">
+    <div class="user-chip">
+      <div class="avatar">AK</div>
+      <div class="user-info">
+        <div class="uname">Arjun Kapoor</div>
+        <div class="urole">Inventory Manager</div>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-title">
+      Dashboard
+      <span>/ Demand Forecasting</span>
+    </div>
+    <div class="status-pill">Model active</div>
+    <button class="hdr-btn">
+      <svg viewBox="0 0 14 14" fill="none"><rect x="1" y="3" width="12" height="9" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M4 1v2M10 1v2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M1 6h12" stroke="currentColor" stroke-width="1.2"/></svg>
+      Mar 2025
+    </button>
+    <button class="hdr-btn">
+      <svg viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.2"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+      Search
+    </button>
+    <button class="hdr-btn primary">
+      <svg viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Upload CSV
+    </button>
+  </header>
+
+  <!-- CONTENT -->
+  <div class="content">
+
+    <!-- KPI STRIP -->
+    <div class="kpi-strip">
+      <div class="kpi-card k-red">
+        <div class="kpi-label">Critical Stockouts</div>
+        <div class="kpi-val">12</div>
+        <span class="kpi-delta down">↑ +3 today</span>
+        <div class="kpi-sub">Requires immediate order</div>
+      </div>
+      <div class="kpi-card k-amber">
+        <div class="kpi-label">High Demand Items</div>
+        <div class="kpi-val">47</div>
+        <span class="kpi-delta warn">↑ +11 this week</span>
+        <div class="kpi-sub">Forecast confidence ≥85%</div>
+      </div>
+      <div class="kpi-card k-blue">
+        <div class="kpi-label">Avg Days of Stock</div>
+        <div class="kpi-val">18.4</div>
+        <span class="kpi-delta up">↓ −2.1 vs last month</span>
+        <div class="kpi-sub">Across 312 active SKUs</div>
+      </div>
+      <div class="kpi-card k-green">
+        <div class="kpi-label">Forecast Accuracy</div>
+        <div class="kpi-val">91.3%</div>
+        <span class="kpi-delta up">↑ +1.8% vs baseline</span>
+        <div class="kpi-sub">30-day rolling average</div>
+      </div>
+    </div>
+
+    <!-- CHART + DONUT -->
+    <div class="grid-row">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="dot-tag" style="background:var(--accent)"></span>
+            Demand velocity — last 30 days
+          </div>
+          <div class="panel-actions">
+            <button class="mini-btn sel">7D</button>
+            <button class="mini-btn">30D</button>
+            <button class="mini-btn">90D</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="chart-wrap">
+            <canvas id="demandChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="dot-tag" style="background:var(--blue)"></span>
+            Priority breakdown
+          </div>
+        </div>
+        <div class="ring-wrap">
+          <div class="ring-chart">
+            <canvas id="donutChart" width="130" height="130"></canvas>
+            <div class="ring-center">
+              <div class="rv">312</div>
+              <div class="rl">total SKUs</div>
+            </div>
+          </div>
+        </div>
+        <div class="ring-legend">
+          <div class="rl-item"><span class="rl-dot" style="background:var(--red)"></span> Critical <span class="rl-val">12</span></div>
+          <div class="rl-item"><span class="rl-dot" style="background:var(--amber)"></span> High demand <span class="rl-val">47</span></div>
+          <div class="rl-item"><span class="rl-dot" style="background:var(--blue)"></span> Monitor <span class="rl-val">89</span></div>
+          <div class="rl-item"><span class="rl-dot" style="background:var(--bg4)"></span> Stable <span class="rl-val">164</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TABLE -->
+    <div class="table-section">
+      <div class="table-header">
+        <div class="panel-title">
+          <span class="dot-tag" style="background:var(--red)"></span>
+          High priority — order now
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="filter-tabs">
+            <button class="ftab crit active">Critical</button>
+            <button class="ftab">High</button>
+            <button class="ftab">All</button>
+          </div>
+          <div class="search-box">
+            <svg viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.2"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+            <input placeholder="Search SKU or product…"/>
+          </div>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>SKU</th>
+            <th>Product</th>
+            <th>Priority</th>
+            <th>Stock left</th>
+            <th>Daily velocity</th>
+            <th>Days remaining</th>
+            <th>Forecast demand</th>
+            <th style="text-align:right">Action</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+
+    <!-- ACTIVITY + UPLOAD ROW -->
+    <div class="grid-row">
+      <div class="activity-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="dot-tag" style="background:var(--text3)"></span>
+            Recent activity
+          </div>
+          <button class="mini-btn">View all</button>
+        </div>
+        <div id="activityFeed"></div>
+      </div>
+
+      <div class="upload-panel" onclick="triggerUpload()">
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none" style="margin:0 auto;display:block;opacity:0.5"><rect width="32" height="32" rx="8" fill="currentColor" opacity="0.1"/><path d="M16 22V10M16 10L11 15M16 10L21 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 24h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/></svg>
+        <p>Upload new inventory CSV</p>
+        <small>SKU · Product · Stock qty · Sales history · Lead time</small>
+        <br><br>
+        <button class="hdr-btn primary" style="display:inline-flex;width:auto;margin:0 auto;">Browse file</button>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<script>
+/* ── DATA ── */
+const tableData = [
+  { sku:'INV-0041', name:'Wireless Earbuds Pro', cat:'Electronics', priority:'critical', stock:38, max:500, velocity:12.4, vTrend:'up', days:3, forecast:372 },
+  { sku:'INV-0088', name:'Ceramic Coffee Mug Set', cat:'Kitchenware', priority:'critical', stock:14, max:200, velocity:5.1, vTrend:'up', days:2, forecast:153 },
+  { sku:'INV-0123', name:'Yoga Mat Premium', cat:'Fitness', priority:'critical', stock:55, max:300, velocity:18.2, vTrend:'up', days:3, forecast:546 },
+  { sku:'INV-0207', name:'USB-C Hub 7-port', cat:'Electronics', priority:'high', stock:112, max:400, velocity:8.9, vTrend:'up', days:12, forecast:267 },
+  { sku:'INV-0314', name:'Stainless Steel Bottle', cat:'Accessories', priority:'high', stock:87, max:600, velocity:7.2, vTrend:'down', days:12, forecast:216 },
+  { sku:'INV-0389', name:'Desk LED Lamp', cat:'Home Office', priority:'high', stock:143, max:500, velocity:11.8, vTrend:'up', days:12, forecast:354 },
+  { sku:'INV-0402', name:'Mechanical Keyboard', cat:'Electronics', priority:'medium', stock:210, max:400, velocity:4.3, vTrend:'up', days:22, forecast:129 },
+];
+
+function renderTable() {
+  const tbody = document.getElementById('tableBody');
+  tbody.innerHTML = tableData.map(r => {
+    const pctStock = Math.round((r.stock / r.max) * 100);
+    const barColor = r.priority === 'critical' ? 'var(--red)' : r.priority === 'high' ? 'var(--amber)' : 'var(--blue)';
+    const vClass = r.vTrend === 'up' ? 'vel-up' : 'vel-down';
+    const vArrow = r.vTrend === 'up' ? '↑' : '↓';
+    return `<tr>
+      <td class="sku-cell">${r.sku}</td>
+      <td><div class="prod-name">${r.name}</div><div class="prod-cat">${r.cat}</div></td>
+      <td><span class="priority-tag ${r.priority}">${r.priority}</span></td>
+      <td>
+        <div class="stock-bar-wrap">
+          <div class="stock-bar"><div class="stock-bar-fill" style="width:${pctStock}%;background:${barColor}"></div></div>
+          <span class="stock-num">${r.stock}</span>
+        </div>
+      </td>
+      <td><span class="vel-val ${vClass}">${vArrow} ${r.velocity}/day</span></td>
+      <td><span style="font-family:'DM Mono',monospace;font-size:12px;color:${r.days <= 3 ? 'var(--red)' : r.days <= 14 ? 'var(--amber)' : 'var(--text2)'}">${r.days}d</span></td>
+      <td><span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text)">${r.forecast} units</span></td>
+      <td class="actions-cell"><button class="order-btn" onclick="handleOrder('${r.sku}')">Order now</button></td>
+    </tr>`;
+  }).join('');
+}
+
+/* ── ACTIVITY ── */
+const activities = [
+  { icon:'order', color:'var(--green-dim)', iconColor:'var(--green)', text:'<strong>PO-2041</strong> placed for INV-0041 — 500 units', time:'2 min ago' },
+  { icon:'alert', color:'var(--red-dim)', iconColor:'var(--red)', text:'<strong>INV-0088</strong> dropped below critical threshold (14 units)', time:'18 min ago' },
+  { icon:'upload', color:'var(--blue-dim)', iconColor:'var(--blue)', text:'CSV uploaded — <strong>inventory_mar15.csv</strong> (312 SKUs)', time:'1 hr ago' },
+  { icon:'forecast', color:'var(--amber-dim)', iconColor:'var(--amber)', text:'Forecast model retrained with <strong>30 days</strong> of new data', time:'3 hr ago' },
+  { icon:'order', color:'var(--green-dim)', iconColor:'var(--green)', text:'<strong>PO-2038</strong> confirmed — INV-0123 delivery in 5 days', time:'5 hr ago' },
+];
+function renderActivity() {
+  const feed = document.getElementById('activityFeed');
+  const icons = {
+    order: '<path d="M2 3h12M2 8h8M2 13h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>',
+    alert: '<path d="M8 1L14 13H2L8 1Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M8 6v3M8 11v.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>',
+    upload: '<path d="M8 10V2M8 2L5 5M8 2L11 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M2 12h12" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>',
+    forecast: '<path d="M2 12L5 9L8 11L11 7L14 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>',
+  };
+  feed.innerHTML = activities.map(a => `
+    <div class="act-item">
+      <div class="act-icon" style="background:${a.color}">
+        <svg viewBox="0 0 14 14" fill="none" style="color:${a.iconColor}">${icons[a.icon] || icons.order}</svg>
+      </div>
+      <div class="act-text">${a.text}</div>
+      <div class="act-time">${a.time}</div>
+    </div>`).join('');
+}
+
+/* ── DEMAND CHART ── */
+function initDemandChart() {
+  const labels = Array.from({length: 30}, (_, i) => {
+    const d = new Date(2025, 2, i + 1);
+    return d.toLocaleDateString('en-US', {month:'short', day:'numeric'});
+  }).filter((_, i) => i % 3 === 0);
+
+  const actual   = [42,38,55,61,49,53,68,74,62,58];
+  const forecast = [null,null,null,null,null,null,null,74,78,82,87,91,88,95];
+
+  const ctx = document.getElementById('demandChart').getContext('2d');
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Actual demand',
+          data: actual,
+          borderColor: '#c8f04a',
+          backgroundColor: 'rgba(200,240,74,0.08)',
+          borderWidth: 1.5,
+          pointRadius: 3,
+          pointBackgroundColor: '#c8f04a',
+          tension: 0.4,
+          fill: true,
+        },
+        {
+          label: 'Forecast',
+          data: forecast,
+          borderColor: '#4a9eff',
+          borderDash: [4, 4],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.4,
+          fill: false,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          labels: {
+            color: '#8b909e',
+            font: { family: 'DM Sans', size: 11 },
+            boxWidth: 10, boxHeight: 2, padding: 16,
+          }
+        },
+        tooltip: {
+          backgroundColor: '#1a1d23',
+          borderColor: 'rgba(255,255,255,0.1)',
+          borderWidth: 1,
+          titleColor: '#e8eaf0',
+          bodyColor: '#8b909e',
+          titleFont: { family: 'DM Mono', size: 11 },
+          bodyFont: { family: 'DM Sans', size: 11 },
+          padding: 10,
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: { color: '#555b6a', font: { family: 'DM Sans', size: 10 } }
+        },
+        y: {
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: { color: '#555b6a', font: { family: 'DM Mono', size: 10 } },
+          beginAtZero: true,
+        }
+      }
+    }
+  });
+}
+
+/* ── DONUT CHART ── */
+function initDonutChart() {
+  const ctx = document.getElementById('donutChart').getContext('2d');
+  new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      datasets: [{
+        data: [12, 47, 89, 164],
+        backgroundColor: ['#ff5f5f', '#f5a623', '#4a9eff', '#20242c'],
+        borderWidth: 0,
+        hoverOffset: 4,
+      }]
+    },
+    options: {
+      cutout: '72%',
+      responsive: false,
+      plugins: { legend: { display: false }, tooltip: {
+        backgroundColor: '#1a1d23',
+        borderColor: 'rgba(255,255,255,0.1)',
+        borderWidth: 1,
+        titleColor: '#e8eaf0',
+        bodyColor: '#8b909e',
+        titleFont: { family: 'DM Mono', size: 11 },
+        bodyFont: { family: 'DM Sans', size: 11 },
+        padding: 10,
+        callbacks: {
+          label: ctx => ` ${ctx.parsed} SKUs`
+        }
+      } }
+    }
+  });
+}
+
+function handleOrder(sku) {
+  const btn = event.target;
+  btn.textContent = 'Queued ✓';
+  btn.style.background = 'var(--green)';
+  btn.style.color = 'var(--bg)';
+  btn.style.borderColor = 'var(--green)';
+  btn.disabled = true;
+}
+
+function triggerUpload() {}
+
+/* filter tabs */
+document.querySelectorAll('.ftab').forEach(btn => {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.ftab').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+  });
+});
+
+/* nav items */
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', function() {
+    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+    this.classList.add('active');
+  });
+});
+
+/* init */
+renderTable();
+renderActivity();
+initDemandChart();
+initDonutChart();
+</script>
+</body>
+</html>
