@@ -55,6 +55,21 @@ def predict(req: PredictionRequest, db: Session = Depends(get_db)):
         confidence_score = round(min(100, max(0, 100 - (abs(predicted_units) / 10))), 2)
         restock_recommended = predicted_units > req.inventory_level * 0.7
 
+        # --- NEW: Auto-create product if missing ---
+        product = db.query(Product).filter(Product.id == req.product_id).first()
+        if not product:
+            # Adjust fields to match your Product model
+            product = Product(
+                id=req.product_id,
+                name=f"Product {req.product_id}",
+                category=req.category,
+                # price=req.price,        # uncomment if Product has price
+                # stock=req.inventory_level # uncomment if Product has stock
+            )
+            db.add(product)
+            db.commit()
+            db.refresh(product)
+
         prediction = Prediction(
             product_id=req.product_id,
             store_id=req.store_id,
@@ -77,7 +92,8 @@ def predict(req: PredictionRequest, db: Session = Depends(get_db)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
+    
+    
 @router.get("/history/{product_id}")
 def get_prediction_history(product_id: str, db: Session = Depends(get_db)):
     predictions = db.query(Prediction).filter(Prediction.product_id == product_id).all()
