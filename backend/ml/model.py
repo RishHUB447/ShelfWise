@@ -1,64 +1,116 @@
 import pandas as pd
 import numpy as np
 from prophet import Prophet
-from xgboost import XGBRegressor
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import mean_absolute_error, mean_squared_error
-import pickle
-import os
+import logging
+logging.getLogger("prophet").setLevel(logging.WARNING)
+logging.getLogger("cmdstanpy").setLevel(logging.WARNING)
 
-DATA_PATH = os.path.join(os.path.dirname(__file__), "data")
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "saved_models")
-os.makedirs(MODEL_PATH, exist_ok=True)
+def run_prediction(sales_logs: list, current_stock: int, reorder_point: int):
+    if not sales_logs:
+        return _empty_result()
 
-def load_and_preprocess(csv_filename):
-    df = pd.read_csv(os.path.join(DATA_PATH, csv_filename))
-    df['Date'] = pd.to_datetime(df['Date'])
-    
-    le = LabelEncoder()
-    for col in ['Category', 'Region', 'Weather Condition', 'Seasonality']:
-        df[col] = le.fit_transform(df[col].astype(str))
-    
-    df['Holiday/Promotion'] = df['Holiday/Promotion'].astype(int)
-    df['Discount'] = df['Discount'].astype(float)
-    return df
+    df = pd.DataFrame([{
+        "ds": pd.to_datetime(log.date),
+        "y": float(log.units_sold)
+    } for log in sales_logs])
 
-def train_prophet(df, product_id, store_id):
-    subset = df[(df['Product ID'] == product_id) & (df['Store ID'] == store_id)].copy()
-    subset = subset.rename(columns={'Date': 'ds', 'Units Sold': 'y'})
-    
-    model = Prophet(
-        yearly_seasonality=True,
-        weekly_seasonality=True,
-        daily_seasonality=False,
-        seasonality_mode='multiplicative'
-    )
-    model.add_regressor('Weather Condition')
-    model.add_regressor('Holiday/Promotion')
-    model.add_regressor('Discount')
-    model.add_regressor('Seasonality')
-    
-    model.fit(subset[['ds', 'y', 'Weather Condition', 'Holiday/Promotion', 'Discount', 'Seasonality']])
-    return model
+    df = df.sort_values("ds").reset_index(drop=True)
+    df = df[df["y"] >= 0]
 
-def train_xgboost(df):
-    features = ['Category', 'Region', 'Inventory Level', 'Price', 
-                'Discount', 'Weather Condition', 'Holiday/Promotion', 
-                'Competitor Pricing', 'Seasonality']
-    
-    X = df[features]
-    y = df['Units Sold']
-    
-    model = XGBRegressor(n_estimators=200, learning_rate=0.05, max_depth=6, random_state=42)
-    model.fit(X, y)
-    
-    with open(os.path.join(MODEL_PATH, "xgboost_model.pkl"), "wb") as f:
-        pickle.dump(model, f)
-    
-    return model
+    n = len(df)
+    avg_daily = float(df["y"].mean())
+    max_daily = float(df["y"].max())
 
-def evaluate(model, X, y_true):
-    y_pred = model.predict(X)
-    mae = mean_absolute_error(y_true, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    return {"MAE": round(mae, 2), "RMSE": round(rmse, 2)}
+    # not enough data — use simple average
+    if n < 14:
+        return _average_result(avg_daily, current_stock, reorder_point, n)
+
+    try:
+        model = Prophet(
+            yearly_seasonality=n >= 180,
+            weekly_seasonality=n >= 14,
+            daily_seasonality=False,
+            seasonality_mode="additive",
+            interval_width=0.80,
+            changepoint_prior_scale=0.05
+        )
+        model.fit(df)
+
+        future = model.make_future_dataframe(periods=30)
+        forecast = model.predict(future)
+        future_fc = forecast.tail(30).reset_index(drop=True)
+
+        # sanity cap — never predict more than 3x historical max per day
+        cap = max_daily * 3
+        future_fc["yhat"] = future_fc["yhat"].clip(lower=0, upper=cap)
+
+        pred_7d = round(float(future_fc.head(7)["yhat"].sum()), 1)
+        pred_14d = round(float(future_fc.head(14)["yhat"].sum()), 1)
+        pred_30d = round(float(future_fc["yhat"].sum()), 1)
+
+        # days until stockout
+        cumulative = 0.0
+        days_until_stockout = 30.0
+        for i, row in future_fc.iterrows():
+            cumulative += max(0, row["yhat"])
+            if cumulative >= current_stock:
+                days_until_stockout = float(i + 1)
+                break
+
+        restock_recommended = days_until_stockout <= 7 or current_stock <= reorder_point
+        restock_quantity = int(pred_30d * 1.2)
+
+        if n >= 180:
+            confidence = 90.0
+        elif n >= 90:
+            confidence = 78.0
+        elif n >= 30:
+            confidence = 65.0
+        else:
+            confidence = 50.0
+
+        return {
+            "predicted_units_7d": pred_7d,
+            "predicted_units_14d": pred_14d,
+            "predicted_units_30d": pred_30d,
+            "days_until_stockout": days_until_stockout,
+            "confidence_score": confidence,
+            "restock_recommended": restock_recommended,
+            "restock_quantity": restock_quantity,
+            "method": "prophet"
+        }
+
+    except Exception as e:
+        return _average_result(avg_daily, current_stock, reorder_point, n)
+
+
+def _average_result(avg_daily, current_stock, reorder_point, n):
+    pred_7d = round(avg_daily * 7, 1)
+    pred_14d = round(avg_daily * 14, 1)
+    pred_30d = round(avg_daily * 30, 1)
+    days_until_stockout = round(current_stock / avg_daily, 1) if avg_daily > 0 else 999.0
+    restock_recommended = days_until_stockout <= 7 or current_stock <= reorder_point
+
+    return {
+        "predicted_units_7d": pred_7d,
+        "predicted_units_14d": pred_14d,
+        "predicted_units_30d": pred_30d,
+        "days_until_stockout": days_until_stockout,
+        "confidence_score": 35.0,
+        "restock_recommended": restock_recommended,
+        "restock_quantity": int(pred_30d * 1.2),
+        "method": "average_fallback"
+    }
+
+
+def _empty_result():
+    return {
+        "predicted_units_7d": 0,
+        "predicted_units_14d": 0,
+        "predicted_units_30d": 0,
+        "days_until_stockout": 999,
+        "confidence_score": 0,
+        "restock_recommended": False,
+        "restock_quantity": 0,
+        "method": "no_data"
+    }

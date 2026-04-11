@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from core.database import engine, Base
 import models
-from api.routes import predictions
+from api.routes import inventory, predictions
 
 Base.metadata.create_all(bind=engine)
 
@@ -16,6 +16,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(inventory.router)
 app.include_router(predictions.router)
 
 @app.get("/")

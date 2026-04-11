@@ -1,60 +1,66 @@
-from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean, ForeignKey
+from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from core.database import Base
 from datetime import datetime
+import uuid
 
-class Store(Base):
-    __tablename__ = "stores"
-    id = Column(String, primary_key=True)
+def gen_id():
+    return str(uuid.uuid4())
+
+class Shop(Base):
+    __tablename__ = "shops"
+    id = Column(String, primary_key=True, default=gen_id)
     name = Column(String, nullable=False)
-    region = Column(String)
+    owner_name = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
-    products = relationship("Product", back_populates="store")
+    products = relationship("Product", back_populates="shop")
 
 class Product(Base):
     __tablename__ = "products"
-    id = Column(String, primary_key=True)
-    store_id = Column(String, ForeignKey("stores.id"))
+    id = Column(String, primary_key=True, default=gen_id)
+    shop_id = Column(String, ForeignKey("shops.id"), nullable=False)
     name = Column(String, nullable=False)
     category = Column(String)
     price = Column(Float)
+    current_stock = Column(Integer, default=0)
+    reorder_point = Column(Integer, default=20)
     created_at = Column(DateTime, default=datetime.utcnow)
-    store = relationship("Store", back_populates="products")
-    inventory = relationship("Inventory", back_populates="product")
+    shop = relationship("Shop", back_populates="products")
+    sales = relationship("SalesLog", back_populates="product")
+    predictions = relationship("Prediction", back_populates="product")
 
-class Inventory(Base):
-    __tablename__ = "inventory"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    product_id = Column(String, ForeignKey("products.id"))
+class SalesLog(Base):
+    __tablename__ = "sales_logs"
+    id = Column(String, primary_key=True, default=gen_id)
+    product_id = Column(String, ForeignKey("products.id"), nullable=False)
+    shop_id = Column(String, nullable=False)
     date = Column(DateTime, nullable=False)
-    inventory_level = Column(Integer)
-    units_sold = Column(Integer)
-    units_ordered = Column(Integer)
-    price = Column(Float)
-    discount = Column(Float)
-    weather_condition = Column(String)
-    holiday_promotion = Column(Boolean, default=False)
-    competitor_pricing = Column(Float)
-    seasonality = Column(String)
-    product = relationship("Product", back_populates="inventory")
+    units_sold = Column(Integer, nullable=False)
+    stock_remaining = Column(Integer)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    product = relationship("Product", back_populates="sales")
 
 class Prediction(Base):
     __tablename__ = "predictions"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    product_id = Column(String, ForeignKey("products.id"))
-    store_id = Column(String)
-    predicted_units = Column(Float)
-    confidence_score = Column(Float)
+    id = Column(String, primary_key=True, default=gen_id)
+    product_id = Column(String, ForeignKey("products.id"), nullable=False)
+    shop_id = Column(String, nullable=False)
+    predicted_units_7d = Column(Float)
+    predicted_units_14d = Column(Float)
+    predicted_units_30d = Column(Float)
+    days_until_stockout = Column(Float)
     restock_recommended = Column(Boolean, default=False)
-    predicted_for_date = Column(DateTime)
+    restock_quantity = Column(Integer)
+    confidence_score = Column(Float)
     created_at = Column(DateTime, default=datetime.utcnow)
+    product = relationship("Product", back_populates="predictions")
 
 class Alert(Base):
     __tablename__ = "alerts"
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(String, primary_key=True, default=gen_id)
+    shop_id = Column(String, nullable=False)
     product_id = Column(String, ForeignKey("products.id"))
-    store_id = Column(String)
     alert_type = Column(String)
-    message = Column(String)
+    message = Column(Text)
     is_resolved = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)

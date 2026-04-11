@@ -39,19 +39,18 @@ function App() {
       <header className="dashboard-header">
         <div className="header-content">
           <h1>
-            <span className="gradient-text">StockPulse</span> Inventory AI
+            <span className="gradient-text">ShelfWise</span> Inventory AI
           </h1>
-          <p className="subtitle">Demand prediction engine with XGBoost</p>
         </div>
         <div className="header-badge">
-          <span className="badge">Real-time ML</span>
+          <span className="badge">Powered by XGBoost</span>
         </div>
       </header>
 
       <main className="dashboard-main">
         <div className="form-section glass-card">
           <div className="section-title">
-            <span className="title-icon">📊</span>
+            <span className="title-icon"></span>
             <h2>Prediction Parameters</h2>
           </div>
           <PredictionForm onResult={handlePredictionResult} />
@@ -60,7 +59,7 @@ function App() {
         {currentResult && (
           <div className="result-section glass-card">
             <div className="section-title">
-              <span className="title-icon">🔮</span>
+              <span className="title-icon"></span>
               <h2>Live Forecast</h2>
             </div>
             <div className="result-grid">
@@ -107,7 +106,7 @@ function App() {
 
         <div className="history-section glass-card">
           <div className="section-title">
-            <span className="title-icon">📜</span>
+            <span className="title-icon"></span>
             <h2>Prediction History</h2>
             {currentResult && (
               <button

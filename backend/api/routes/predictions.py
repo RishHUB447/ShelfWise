@@ -1,100 +1,91 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from core.database import get_db
-from models import Prediction, Inventory, Product
-import pickle
-import numpy as np
-import os
+from models import Product, SalesLog, Prediction, Alert
+from ml.model import run_prediction
 from datetime import datetime
-from pydantic import BaseModel
 
 router = APIRouter(prefix="/predictions", tags=["Predictions"])
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "../../ml/saved_models/xgboost_model.pkl")
+@router.get("/run/{product_id}")
+def run_product_prediction(product_id: str, db: Session = Depends(get_db)):
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
 
-def load_model():
-    with open(MODEL_PATH, "rb") as f:
-        return pickle.load(f)
+    sales_logs = db.query(SalesLog).filter(
+        SalesLog.product_id == product_id
+    ).order_by(SalesLog.date).all()
 
-CATEGORY_MAP = {"Clothing": 0, "Electronics": 1, "Furniture": 2, "Groceries": 3, "Toys": 4}
-REGION_MAP = {"East": 0, "North": 1, "South": 2, "West": 3}
-WEATHER_MAP = {"Cloudy": 0, "Rainy": 1, "Snowy": 2, "Sunny": 3}
-SEASON_MAP = {"Autumn": 0, "Spring": 1, "Summer": 2, "Winter": 3}
+    result = run_prediction(sales_logs, product.current_stock, product.reorder_point)
 
-class PredictionRequest(BaseModel):
-    product_id: str
-    store_id: str
-    category: str
-    region: str
-    inventory_level: int
-    price: float
-    discount: float
-    weather_condition: str
-    holiday_promotion: bool
-    competitor_pricing: float
-    seasonality: str
+    prediction = Prediction(
+        product_id=product_id,
+        shop_id=product.shop_id,
+        predicted_units_7d=float(result["predicted_units_7d"]),
+        predicted_units_14d=float(result["predicted_units_14d"]),
+        predicted_units_30d=float(result["predicted_units_30d"]),
+        days_until_stockout=float(result["days_until_stockout"]),
+        restock_recommended=bool(result["restock_recommended"]),
+        restock_quantity=int(result["restock_quantity"]),
+        confidence_score=float(result["confidence_score"]),
+    )
+    db.add(prediction)
 
-@router.post("/predict")
-def predict(req: PredictionRequest, db: Session = Depends(get_db)):
-    try:
-        model = load_model()
-
-        features = np.array([[
-            CATEGORY_MAP.get(req.category, 0),
-            REGION_MAP.get(req.region, 0),
-            req.inventory_level,
-            req.price,
-            req.discount,
-            WEATHER_MAP.get(req.weather_condition, 0),
-            int(req.holiday_promotion),
-            req.competitor_pricing,
-            SEASON_MAP.get(req.seasonality, 0)
-        ]])
-
-        predicted_units = float(model.predict(features)[0])
-        confidence_score = round(min(100, max(0, 100 - (abs(predicted_units) / 10))), 2)
-        restock_recommended = predicted_units > req.inventory_level * 0.7
-
-        # --- NEW: Auto-create product if missing ---
-        product = db.query(Product).filter(Product.id == req.product_id).first()
-        if not product:
-            # Adjust fields to match your Product model
-            product = Product(
-                id=req.product_id,
-                name=f"Product {req.product_id}",
-                category=req.category,
-                # price=req.price,        # uncomment if Product has price
-                # stock=req.inventory_level # uncomment if Product has stock
-            )
-            db.add(product)
-            db.commit()
-            db.refresh(product)
-
-        prediction = Prediction(
-            product_id=req.product_id,
-            store_id=req.store_id,
-            predicted_units=round(predicted_units, 2),
-            confidence_score=confidence_score,
-            restock_recommended=restock_recommended,
-            predicted_for_date=datetime.utcnow()
+    if result["restock_recommended"]:
+        alert = Alert(
+            shop_id=product.shop_id,
+            product_id=product_id,
+            alert_type="restock",
+            message=f"{product.name} will run out in {result['days_until_stockout']} days. Restock {result['restock_quantity']} units."
         )
-        db.add(prediction)
-        db.commit()
-        db.refresh(prediction)
+        db.add(alert)
 
-        return {
-            "product_id": req.product_id,
-            "store_id": req.store_id,
-            "predicted_units": round(predicted_units, 2),
-            "confidence_score": confidence_score,
-            "restock_recommended": restock_recommended,
-        }
+    db.commit()
+    db.refresh(prediction)
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    
-    
-@router.get("/history/{product_id}")
-def get_prediction_history(product_id: str, db: Session = Depends(get_db)):
-    predictions = db.query(Prediction).filter(Prediction.product_id == product_id).all()
-    return predictions
+    return {
+        "product": product.name,
+        "current_stock": product.current_stock,
+        **result
+    }
+
+@router.get("/shop/{shop_id}")
+def get_shop_predictions(shop_id: str, db: Session = Depends(get_db)):
+    products = db.query(Product).filter(Product.shop_id == shop_id).all()
+    results = []
+    for product in products:
+        latest = db.query(Prediction).filter(
+            Prediction.product_id == product.id
+        ).order_by(Prediction.created_at.desc()).first()
+        if latest:
+            results.append({
+                "product_id": product.id,
+                "product_name": product.name,
+                "category": product.category,
+                "current_stock": product.current_stock,
+                "days_until_stockout": latest.days_until_stockout,
+                "predicted_units_7d": latest.predicted_units_7d,
+                "predicted_units_30d": latest.predicted_units_30d,
+                "restock_recommended": latest.restock_recommended,
+                "restock_quantity": latest.restock_quantity,
+                "confidence_score": latest.confidence_score,
+            })
+    return results
+
+@router.get("/alerts/{shop_id}")
+def get_alerts(shop_id: str, db: Session = Depends(get_db)):
+    alerts = db.query(Alert).filter(
+        Alert.shop_id == shop_id,
+        Alert.is_resolved == False
+    ).order_by(Alert.created_at.desc()).all()
+    return alerts
+
+@router.patch("/alerts/{alert_id}/resolve")
+def resolve_alert(alert_id: str, db: Session = Depends(get_db)):
+    alert = db.query(Alert).filter(Alert.id == alert_id).first()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    alert.is_resolved = True
+    db.commit()
+    return {"message": "Alert resolved"}
