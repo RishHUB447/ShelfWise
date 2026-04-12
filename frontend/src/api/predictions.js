@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const BASE_URL = "https://shelfwise-production-d477.up.railway.app";
 
 const getHeaders = () => {
   const token = localStorage.getItem("shelfwise_token");
