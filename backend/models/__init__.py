@@ -12,6 +12,8 @@ class Shop(Base):
     id = Column(String, primary_key=True, default=gen_id)
     name = Column(String, nullable=False)
     owner_name = Column(String)
+    email = Column(String, unique=True, nullable=False)
+    password_hash = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     products = relationship("Product", back_populates="shop")
 

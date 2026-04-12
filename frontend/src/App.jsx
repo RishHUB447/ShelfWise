@@ -4,8 +4,9 @@ import Dashboard from "./pages/Dashboard";
 
 export default function App() {
   const [shop, setShop] = useState(() => {
+    const token = localStorage.getItem("shelfwise_token");
     const saved = localStorage.getItem("shelfwise_shop");
-    return saved ? JSON.parse(saved) : null;
+    return token && saved ? JSON.parse(saved) : null;
   });
 
   const handleShopCreated = (shopData) => {
@@ -14,6 +15,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem("shelfwise_token");
     localStorage.removeItem("shelfwise_shop");
     setShop(null);
   };

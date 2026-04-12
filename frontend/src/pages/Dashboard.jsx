@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import axios from "axios";
+import { api } from "../api/predictions";
 
 const BASE_URL = "http://localhost:8000";
 
@@ -111,9 +111,9 @@ export default function Dashboard({ shop, onLogout }) {
     setLoading(true);
     try {
       const [prodRes, predRes, alertRes] = await Promise.all([
-        axios.get(`${BASE_URL}/inventory/products/${shop.id}`),
-        axios.get(`${BASE_URL}/predictions/shop/${shop.id}`),
-        axios.get(`${BASE_URL}/predictions/alerts/${shop.id}`),
+        api.get(`${BASE_URL}/inventory/products/${shop.id}`),
+        api.get(`${BASE_URL}/predictions/shop/${shop.id}`),
+        api.get(`${BASE_URL}/predictions/alerts/${shop.id}`),
       ]);
       setProducts(prodRes.data);
       setPredictions(predRes.data);
@@ -125,7 +125,7 @@ export default function Dashboard({ shop, onLogout }) {
   const runPrediction = async (productId) => {
     setRunningPred(productId);
     try {
-      await axios.get(`${BASE_URL}/predictions/run/${productId}`);
+      await api.get(`${BASE_URL}/predictions/run/${productId}`);
       await loadAll();
     } catch (e) { console.error(e); }
     setRunningPred(null);
@@ -136,7 +136,7 @@ export default function Dashboard({ shop, onLogout }) {
   };
 
   const resolveAlert = async (alertId) => {
-    await axios.patch(`${BASE_URL}/predictions/alerts/${alertId}/resolve`);
+    await api.patch(`${BASE_URL}/predictions/alerts/${alertId}/resolve`);
     await loadAll();
   };
 
@@ -147,13 +147,13 @@ export default function Dashboard({ shop, onLogout }) {
     try {
       let product = products.find(p => p.name.toLowerCase() === manualForm.product_name.toLowerCase());
       if (!product) {
-        const res = await axios.post(`${BASE_URL}/inventory/products`, {
+        const res = await api.post(`${BASE_URL}/inventory/products`, {
           shop_id: shop.id, name: manualForm.product_name,
           category: manualForm.category, current_stock: parseInt(manualForm.stock_remaining) || 0,
         });
         product = res.data;
       }
-      await axios.post(`${BASE_URL}/inventory/sales`, {
+      await api.post(`${BASE_URL}/inventory/sales`, {
         product_id: product.id, shop_id: shop.id,
         date: new Date().toISOString().split("T")[0],
         units_sold: parseInt(manualForm.units_sold),
@@ -173,7 +173,7 @@ export default function Dashboard({ shop, onLogout }) {
     try {
       const form = new FormData();
       form.append("file", csvFile);
-      const res = await axios.post(`${BASE_URL}/inventory/upload-csv/${shop.id}`, form, { headers: { "Content-Type": "multipart/form-data" } });
+      const res = await api.post(`/inventory/upload-csv/${shop.id}`, form, { headers: { "Content-Type": "multipart/form-data" } });
       setUploadMsg(`✓ ${res.data.products_created} products, ${res.data.sales_logs_added} records imported`);
       setCsvFile(null);
       await loadAll();
