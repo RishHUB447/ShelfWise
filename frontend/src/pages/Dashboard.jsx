@@ -1,8 +1,6 @@
 import { useState, useEffect } from "react";
 import { api } from "../api/predictions";
 
-const BASE_URL = "http://localhost:8000";
-
 const s = {
   page: { minHeight: "100vh", background: "var(--black)", display: "flex" },
   sidebar: {
