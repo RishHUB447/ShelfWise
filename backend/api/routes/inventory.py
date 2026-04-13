@@ -96,51 +96,74 @@ def get_sales(product_id: str, db: Session = Depends(get_db)):
 async def upload_csv(shop_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
     content = await file.read()
     reader = csv.DictReader(io.StringIO(content.decode("utf-8")))
-    
-    logs_added = 0
+    rows = list(reader)
+
+    if not rows:
+        raise HTTPException(status_code=400, detail="Empty CSV")
+
+    # build product map in one query
+    existing_products = db.query(Product).filter(Product.shop_id == shop_id).all()
+    product_map = {p.name.lower(): p for p in existing_products}
+
+    new_products = []
     products_created = 0
 
-    for row in reader:
+    for row in rows:
         name = row.get("product_name", "").strip()
-        category = row.get("category", "General").strip()
-        units_sold = int(row.get("units_sold", 0))
-        stock_remaining = int(row.get("stock_remaining", 0))
-        date_str = row.get("date", "").strip()
+        if not name or name.lower() in product_map:
+            continue
+        p = Product(
+            shop_id=shop_id,
+            name=name,
+            category=row.get("category", "General").strip(),
+            current_stock=int(row.get("stock_remaining", 0) or 0)
+        )
+        new_products.append(p)
+        product_map[name.lower()] = p
+        products_created += 1
 
+    if new_products:
+        db.bulk_save_objects(new_products)
+        db.flush()
+
+    # re-fetch to get IDs for new products
+    all_products = db.query(Product).filter(Product.shop_id == shop_id).all()
+    product_map = {p.name.lower(): p for p in all_products}
+
+    # bulk insert sales logs
+    logs = []
+    stock_updates = {}
+
+    for row in rows:
+        name = row.get("product_name", "").strip()
+        date_str = row.get("date", "").strip()
         if not name or not date_str:
             continue
-
-        product = db.query(Product).filter(
-            Product.shop_id == shop_id,
-            Product.name == name
-        ).first()
-
+        product = product_map.get(name.lower())
         if not product:
-            product = Product(
+            continue
+        try:
+            logs.append(SalesLog(
+                product_id=product.id,
                 shop_id=shop_id,
-                name=name,
-                category=category,
-                current_stock=stock_remaining
-            )
-            db.add(product)
-            db.commit()
-            db.refresh(product)
-            products_created += 1
+                date=datetime.strptime(date_str, "%Y-%m-%d"),
+                units_sold=int(row.get("units_sold", 0) or 0),
+                stock_remaining=int(row.get("stock_remaining", 0) or 0)
+            ))
+            stock_updates[product.id] = int(row.get("stock_remaining", 0) or 0)
+        except Exception:
+            continue
 
-        log = SalesLog(
-            product_id=product.id,
-            shop_id=shop_id,
-            date=datetime.strptime(date_str, "%Y-%m-%d"),
-            units_sold=units_sold,
-            stock_remaining=stock_remaining
-        )
-        db.add(log)
-        product.current_stock = stock_remaining
-        logs_added += 1
+    db.bulk_save_objects(logs)
+
+    # bulk update stock levels
+    for pid, stock in stock_updates.items():
+        db.query(Product).filter(Product.id == pid).update({"current_stock": stock})
 
     db.commit()
+
     return {
         "message": "CSV uploaded successfully",
         "products_created": products_created,
-        "sales_logs_added": logs_added
+        "sales_logs_added": len(logs)
     }

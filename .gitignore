@@ -42,4 +42,4 @@ Thumbs.db
 npm-debug.log*
 
 #data
-TestShopdata.csv
+sales_data.csv
