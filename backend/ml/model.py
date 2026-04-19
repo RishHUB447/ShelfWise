@@ -5,6 +5,32 @@ import logging
 logging.getLogger("prophet").setLevel(logging.WARNING)
 logging.getLogger("cmdstanpy").setLevel(logging.WARNING)
 
+def calculate_restock(daily_demand: float, current_stock: int, daily_std: float, lead_time_days: int = 7, service_level_z: float = 1.65) -> dict:
+    """
+    EOQ-based restock calculation
+    Safety Stock = Z × σ × √(Lead Time)
+    Reorder Point = (Avg Daily Demand × Lead Time) + Safety Stock
+    Order Quantity = 30-day demand + Safety Stock - Current Stock
+    """
+    if daily_demand <= 0:
+        return {"restock_recommended": False, "restock_quantity": 0, "safety_stock": 0, "reorder_point": 0}
+
+    safety_stock = int(service_level_z * daily_std * (lead_time_days ** 0.5))
+    reorder_point = int((daily_demand * lead_time_days) + safety_stock)
+    order_quantity = max(0, int((daily_demand * 30) + safety_stock - current_stock))
+
+    # sanity cap — never order more than 90 days of stock
+    order_quantity = min(order_quantity, int(daily_demand * 90))
+
+    restock_recommended = current_stock <= reorder_point
+
+    return {
+        "restock_recommended": restock_recommended,
+        "restock_quantity": order_quantity,
+        "safety_stock": safety_stock,
+        "reorder_point": reorder_point
+    }
+
 def get_indian_holidays():
     years = [2022, 2023, 2024, 2025, 2026]
     holidays = []
@@ -137,8 +163,12 @@ def run_prediction(sales_logs: list, current_stock: int, reorder_point: int):
                 days_until_stockout = float(i + 1)
                 break
 
-        restock_recommended = days_until_stockout <= 7 or current_stock <= reorder_point
-        restock_quantity = int(pred_30d * 1.2)
+        avg_daily_pred = pred_30d / 30
+        daily_std = float(df["y"].std()) if n > 1 else avg_daily_pred * 0.2
+        restock = calculate_restock(avg_daily_pred, current_stock, daily_std)
+
+        restock_recommended = restock["restock_recommended"] or days_until_stockout <= 7
+        restock_quantity = restock["restock_quantity"]
 
         if n >= 180:
             confidence = 92.0
