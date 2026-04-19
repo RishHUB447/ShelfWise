@@ -217,12 +217,27 @@ export default function Dashboard({ shop, onLogout }) {
             {t === "import" && "Import CSV"}
           </div>
         ))}
-        <div style={{ flex: 1 }} />
-        <div
-          style={{ ...s.navItem(false), color: "var(--text-muted)", fontSize: "12px" }}
-          onClick={onLogout}
-        >
-          Switch Shop
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          <div
+            style={{ ...s.navItem(false), color: "var(--text-muted)", fontSize: "12px" }}
+            onClick={onLogout}
+          >
+            Switch Shop
+          </div>
+          <div
+            style={{ ...s.navItem(false), color: "var(--red)", fontSize: "12px" }}
+            onClick={async () => {
+              if (!window.confirm("Delete your account and ALL data permanently?")) return;
+              try {
+                await api.delete("/auth/delete-account");
+                onLogout();
+              } catch {
+                alert("Failed to delete account.");
+              }
+            }}
+          >
+            Delete Account
+          </div>
         </div>
       </div>
 

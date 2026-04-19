@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from core.database import get_db
-from core.auth import hash_password, verify_password, create_token
+from core.auth import hash_password, verify_password, create_token, get_current_shop
 from models import Shop
 from pydantic import BaseModel, EmailStr
 
@@ -64,3 +64,21 @@ def login(data: LoginData, db: Session = Depends(get_db)):
 @router.get("/me")
 def me(db: Session = Depends(get_db), token: str = None):
     pass
+
+@router.delete("/delete-account")
+def delete_account(db: Session = Depends(get_db), shop: Shop = Depends(get_current_shop)):
+    from models import Product, SalesLog, Prediction, Alert
+    
+    # delete in order to respect foreign keys
+    products = db.query(Product).filter(Product.shop_id == shop.id).all()
+    for p in products:
+        db.query(SalesLog).filter(SalesLog.product_id == p.id).delete()
+        db.query(Prediction).filter(Prediction.product_id == p.id).delete()
+        db.query(Alert).filter(Alert.product_id == p.id).delete()
+    
+    db.query(Product).filter(Product.shop_id == shop.id).delete()
+    db.query(Alert).filter(Alert.shop_id == shop.id).delete()
+    db.delete(shop)
+    db.commit()
+    
+    return {"message": "Account deleted successfully"}
