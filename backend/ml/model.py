@@ -226,15 +226,12 @@ def forecast_product(model, feature_cols, le, product_df, product_id):
 # 5. Restock calculation using forecast uncertainty
 # -------------------------------------------------------------------
 def calculate_restock_v3(forecast_30d, current_stock, lead_time_days=7, service_level_z=1.65):
-    """
-    Sanity-checked restock logic.
-    forecast_30d: array of next 30 days predicted sales
-    """
     avg_daily = np.mean(forecast_30d)
     if avg_daily <= 0:
-        return {"restock_recommended": False, "restock_quantity": 0, "safety_stock": 0, "reorder_point": 0}
+        return {"restock_recommended": False, "restock_quantity": 0, "safety_stock": 0, "reorder_point": 0, "days_until_stockout": 999}
     
-    # Days until stockout based on forecast
+    # Cap avg_daily to reasonable max (e.g., 3x historical max)
+    # But first, compute days until stockout
     cum = 0
     days_until_out = 30
     for i, sales in enumerate(forecast_30d):
@@ -243,34 +240,33 @@ def calculate_restock_v3(forecast_30d, current_stock, lead_time_days=7, service_
             days_until_out = i + 1
             break
     
-    # Lead time demand
-    lead_demand = avg_daily * lead_time_days
+    # Cap avg_daily to prevent insane orders
+    max_reasonable_daily = 500  # adjust based on your business, but 6000 is nonsense
+    if avg_daily > max_reasonable_daily:
+        avg_daily = max_reasonable_daily
+        # Also cap forecast_30d values
+        forecast_30d = np.clip(forecast_30d, 0, max_reasonable_daily)
     
-    # Safety stock (using forecast error – simplified here with std of first 7 days)
+    lead_demand = avg_daily * lead_time_days
     forecast_std = np.std(forecast_30d[:lead_time_days]) if len(forecast_30d) >= lead_time_days else avg_daily * 0.2
     safety_stock = int(service_level_z * forecast_std * np.sqrt(lead_time_days))
-    
     reorder_point = int(lead_demand + safety_stock)
     
-    # RESTOCK QUANTITY: only what's needed to cover lead time + safety, NOT 30 days
-    # If stockout is imminent (< lead_time), order enough to cover lead_time + buffer
+    # NEW: Emergency order only what's needed to survive lead time
     if days_until_out <= lead_time_days:
-        # Emergency: order enough to cover lead time demand plus safety, minus what's left
+        # Order exactly enough to cover lead time demand + safety, minus current stock
         needed_for_lead = max(0, lead_demand + safety_stock - current_stock)
-        # But also add a reasonable buffer (7 extra days)
-        restock_quantity = int(needed_for_lead + (avg_daily * 7))
+        restock_quantity = needed_for_lead
+        # But never more than 2x lead time demand
+        restock_quantity = min(restock_quantity, int(lead_demand * 2))
     else:
-        # Normal: order to bring stock up to (lead_demand + safety_stock + 14 days buffer)
-        target_stock = lead_demand + safety_stock + (avg_daily * 14)
+        # Normal: bring stock up to lead demand + safety + 7 days buffer
+        target_stock = lead_demand + safety_stock + (avg_daily * 7)
         restock_quantity = max(0, int(target_stock - current_stock))
+        restock_quantity = min(restock_quantity, int(lead_demand * 3))
     
-    # CAP: never order more than 60 days of demand
-    max_order = int(avg_daily * 60)
-    restock_quantity = min(restock_quantity, max_order)
-    
-    # Also cap by a reasonable absolute number if avg_daily is huge (e.g., >1000)
-    if avg_daily > 500:
-        restock_quantity = min(restock_quantity, int(avg_daily * 30))
+    # Absolute cap: never more than 1000 units (adjust as needed)
+    restock_quantity = min(restock_quantity, 1000)
     
     restock_recommended = (days_until_out <= lead_time_days) or (current_stock <= reorder_point)
     
