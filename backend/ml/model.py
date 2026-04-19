@@ -7,21 +7,31 @@ logging.getLogger("cmdstanpy").setLevel(logging.WARNING)
 
 def calculate_restock(daily_demand: float, current_stock: int, daily_std: float, lead_time_days: int = 7, service_level_z: float = 1.65) -> dict:
     """
-    EOQ-based restock calculation
-    Safety Stock = Z × σ × √(Lead Time)
-    Reorder Point = (Avg Daily Demand × Lead Time) + Safety Stock
-    Order Quantity = 30-day demand + Safety Stock - Current Stock
+    Improved restock calculation with realistic caps & smoothing
     """
+
     if daily_demand <= 0:
         return {"restock_recommended": False, "restock_quantity": 0, "safety_stock": 0, "reorder_point": 0}
 
+    # --- Safety Stock ---
     safety_stock = int(service_level_z * daily_std * (lead_time_days ** 0.5))
+
+    # --- Reorder Point ---
     reorder_point = int((daily_demand * lead_time_days) + safety_stock)
-    order_quantity = max(0, int((daily_demand * 30) + safety_stock - current_stock))
 
-    # sanity cap — never order more than 90 days of stock
-    order_quantity = min(order_quantity, int(daily_demand * 90))
+    # --- Smarter Order Quantity ---
+    target_days = 21  # instead of blindly 30
 
+    base_order = (daily_demand * target_days) + safety_stock - current_stock
+
+    # Caps to prevent insanity
+    max_order = daily_demand * 45   # hard upper cap
+    min_order = daily_demand * 3    # avoid useless tiny orders
+
+    order_quantity = int(np.clip(base_order, min_order, max_order))
+    order_quantity = max(0, order_quantity)
+
+    # --- Final decision ---
     restock_recommended = current_stock <= reorder_point
 
     return {
@@ -147,7 +157,7 @@ def run_prediction(sales_logs: list, current_stock: int, reorder_point: int):
         forecast = model.predict(future)
         future_fc = forecast.tail(30).reset_index(drop=True)
 
-        # sanity cap — never more than 3x historical max per day
+        # --- Hard sanity cap on predictions ---
         cap = max_daily * 3
         future_fc["yhat"] = future_fc["yhat"].clip(lower=0, upper=cap)
 
@@ -155,6 +165,7 @@ def run_prediction(sales_logs: list, current_stock: int, reorder_point: int):
         pred_14d = round(float(future_fc.head(14)["yhat"].sum()), 1)
         pred_30d = round(float(future_fc["yhat"].sum()), 1)
 
+        # --- Stockout estimation ---
         cumulative = 0.0
         days_until_stockout = 30.0
         for i, row in future_fc.iterrows():
@@ -163,13 +174,38 @@ def run_prediction(sales_logs: list, current_stock: int, reorder_point: int):
                 days_until_stockout = float(i + 1)
                 break
 
-        avg_daily_pred = pred_30d / 30
-        daily_std = float(df["y"].std()) if n > 1 else avg_daily_pred * 0.2
+        # =========================
+        # 🔥 ROBUST DEMAND LOGIC
+        # =========================
+
+        hist_median = float(df["y"].median())
+        hist_mean = float(df["y"].mean())
+        fc_median = float(future_fc["yhat"].median())
+
+        # Blend forecast + history
+        avg_daily_pred = 0.6 * hist_median + 0.4 * fc_median
+
+        # Clamp to prevent spikes
+        max_allowed = hist_mean * 1.8
+        min_allowed = hist_mean * 0.5 if hist_mean > 0 else 0
+        avg_daily_pred = float(np.clip(avg_daily_pred, min_allowed, max_allowed))
+
+        # Better std estimate
+        fc_std = float(future_fc["yhat"].std())
+        hist_std = float(df["y"].std()) if n > 1 else 0
+        daily_std = max(hist_std, fc_std * 0.5)
+
         restock = calculate_restock(avg_daily_pred, current_stock, daily_std)
 
         restock_recommended = restock["restock_recommended"] or days_until_stockout <= 7
-        restock_quantity = restock["restock_quantity"]
 
+        # --- Anti-stupidity cap on order ---
+        if days_until_stockout > 3 and restock["restock_quantity"] > avg_daily_pred * 30:
+            restock_quantity = int(avg_daily_pred * 21)
+        else:
+            restock_quantity = restock["restock_quantity"]
+
+        # --- Confidence ---
         if n >= 180:
             confidence = 92.0
         elif n >= 90:
