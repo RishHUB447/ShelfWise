@@ -1,2 +1,0 @@
-libgomp1
-gcc
