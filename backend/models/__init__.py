@@ -39,9 +39,10 @@ class SalesLog(Base):
     date = Column(DateTime, nullable=False)
     units_sold = Column(Integer, nullable=False)
     stock_remaining = Column(Integer)
+    discount_active = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     product = relationship("Product", back_populates="sales")
-
+    
 class Prediction(Base):
     __tablename__ = "predictions"
     id = Column(String, primary_key=True, default=gen_id)
@@ -66,3 +67,4 @@ class Alert(Base):
     message = Column(Text)
     is_resolved = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
