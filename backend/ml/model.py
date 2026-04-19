@@ -13,9 +13,6 @@ logging.getLogger("lightgbm").setLevel(logging.WARNING)
 # 1. Helper: Build continuous daily time series per product
 # -------------------------------------------------------------------
 def build_product_ts(sales_logs, product_id=None):
-    """
-    Convert list of sales logs into a daily dataframe with zeros for missing days.
-    """
     if not sales_logs:
         return pd.DataFrame(columns=['ds', 'y', 'discount_active', 'product_id'])
     
@@ -26,15 +23,23 @@ def build_product_ts(sales_logs, product_id=None):
         'product_id': product_id if product_id else getattr(log, 'product_id', 'unknown')
     } for log in sales_logs])
     
-    # Ensure no negative sales
     df['y'] = df['y'].clip(lower=0)
     
-    # Create full date range from min to max date
+    # CRITICAL: Remove duplicate dates (sum sales, take max discount)
+    df = df.groupby(['ds', 'product_id'], as_index=False).agg({
+        'y': 'sum',
+        'discount_active': 'max'
+    })
+    
+    # If only one unique date, just return as is (no reindex needed)
+    if df['ds'].nunique() == 1:
+        return df
+    
+    # Create full date range
     date_range = pd.date_range(start=df['ds'].min(), end=df['ds'].max(), freq='D')
     
-    # Reindex each product (groupby product_id if multiple)
+    # If multiple products, handle each separately
     if df['product_id'].nunique() > 1:
-        # Multiple products in one call – should not happen per our design, but handle gracefully
         full_df = []
         for pid, grp in df.groupby('product_id'):
             grp = grp.set_index('ds').reindex(date_range, fill_value=0).reset_index()
@@ -43,9 +48,13 @@ def build_product_ts(sales_logs, product_id=None):
             grp['discount_active'] = grp['discount_active'].fillna(0)
             grp['product_id'] = pid
             full_df.append(grp)
-        df = pd.concat(full_df, ignore_index=True)
+        return pd.concat(full_df, ignore_index=True)
     else:
-        df = df.set_index('ds').reindex(date_range, fill_value=0).reset_index()
+        # Single product – ensure no duplicate index before reindex
+        df = df.set_index('ds')
+        # Drop any remaining duplicate index (shouldn't happen but safety)
+        df = df[~df.index.duplicated(keep='first')]
+        df = df.reindex(date_range, fill_value=0).reset_index()
         df.rename(columns={'index': 'ds'}, inplace=True)
         df['y'] = df['y'].fillna(0)
         df['discount_active'] = df['discount_active'].fillna(0)
@@ -53,8 +62,7 @@ def build_product_ts(sales_logs, product_id=None):
             df['product_id'] = product_id
         else:
             df['product_id'] = df['product_id'].fillna('unknown')
-    
-    return df
+        return df
 
 # -------------------------------------------------------------------
 # 2. Feature engineering
